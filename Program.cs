@@ -24,10 +24,10 @@ public static class Program
 
         var formatOption = new Option<string>(
             name: "--format",
-            description: "Output format: json (default) or python",
+            description: "Output format: json (default), python, or dxt",
             getDefaultValue: () => "json");
         formatOption.AddAlias("-f");
-        formatOption.FromAmong("json", "python");
+        formatOption.FromAmong("json", "python", "dxt");
 
         var rootCommand = new RootCommand("Extracts Model Context Protocol (MCP) tool metadata from .NET assemblies")
         {
@@ -76,9 +76,15 @@ public static class Program
             {
                 output = GeneratePythonOutput(result, assemblyPath.Name);
             }
+            else if (format == "dxt")
+            {
+                output = GenerateDxtOutput(result, assemblyPath.Name);
+            }
             else
             {
-                output = JsonSerializer.Serialize(result, JsonContext.Default.McpToolsOutput);
+                // For JSON format, return the tools in the original format for backward compatibility
+                var mcpOutput = new McpToolsOutput { Tools = result.Tools };
+                output = JsonSerializer.Serialize(mcpOutput, JsonContext.Default.McpToolsOutput);
             }
 
             if (outputPath != null)
@@ -98,7 +104,7 @@ public static class Program
         }
     }
 
-    private static string GeneratePythonOutput(McpToolsOutput result, string assemblyFileName)
+    private static string GeneratePythonOutput(AnalysisResult result, string assemblyFileName)
     {
         var python = new StringBuilder();
         python.AppendLine("# Auto-generated Python function definitions for MCP tools");
@@ -174,6 +180,51 @@ public static class Program
         }
 
         return python.ToString();
+    }
+
+    private static string GenerateDxtOutput(AnalysisResult result, string assemblyFileName)
+    {
+        // Convert MCP tools to DXT tools format
+        var dxtTools = new List<DxtTool>();
+        foreach (var tool in result.Tools)
+        {
+            dxtTools.Add(new DxtTool
+            {
+                Name = tool.Name,
+                Description = tool.Description
+            });
+        }
+
+        // Extract assembly name without extension for manifest name
+        var manifestName = Path.GetFileNameWithoutExtension(assemblyFileName);
+
+        // Create DXT manifest
+        var manifest = new DxtManifest
+        {
+            DxtVersion = "0.1",
+            Name = manifestName,
+            Version = result.AssemblyVersion ?? "1.0.0",
+            Description = result.AssemblyDescription ?? $"MCP server extracted from {assemblyFileName}",
+            Author = new DxtAuthor
+            {
+                Name = result.AssemblyCompany ?? "Unknown",
+                Email = null,
+                Url = null
+            },
+            Server = new DxtServer
+            {
+                Type = "binary",
+                EntryPoint = assemblyFileName,
+                McpConfig = new DxtMcpConfig
+                {
+                    Command = "dotnet",
+                    Args = new List<string> { $"${{__dirname}}/{assemblyFileName}" }
+                }
+            },
+            Tools = dxtTools.Count > 0 ? dxtTools : null
+        };
+
+        return JsonSerializer.Serialize(manifest, JsonContext.Default.DxtManifest);
     }
 
     private static string SanitizePythonName(string name)

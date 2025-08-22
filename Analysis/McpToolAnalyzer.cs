@@ -15,7 +15,7 @@ public sealed class McpToolAnalyzer
     [UnconditionalSuppressMessage("Trimming", "IL2062", Justification = "Types analysis is required for tool discovery")]
     [UnconditionalSuppressMessage("Trimming", "IL2070", Justification = "Dynamic access to types is required for analysis")]
     [RequiresUnreferencedCode("Assembly analysis requires unreferenced code access")]
-    public McpToolsOutput AnalyzeAssembly(string assemblyPath)
+    public AnalysisResult AnalyzeAssembly(string assemblyPath)
     {
         if (!File.Exists(assemblyPath))
         {
@@ -26,6 +26,30 @@ public sealed class McpToolAnalyzer
 
         // Load the assembly for reflection
         var assembly = Assembly.LoadFrom(assemblyPath);
+        
+        // Extract assembly metadata
+        var assemblyName = assembly.GetName();
+        var assemblyVersion = assemblyName.Version?.ToString() ?? "1.0.0";
+        
+        string? assemblyDescription = null;
+        string? assemblyCompany = null;
+        string? assemblyProduct = null;
+        
+        try
+        {
+            var descriptionAttribute = assembly.GetCustomAttribute<System.Reflection.AssemblyDescriptionAttribute>();
+            assemblyDescription = descriptionAttribute?.Description;
+            
+            var companyAttribute = assembly.GetCustomAttribute<System.Reflection.AssemblyCompanyAttribute>();
+            assemblyCompany = companyAttribute?.Company;
+            
+            var productAttribute = assembly.GetCustomAttribute<System.Reflection.AssemblyProductAttribute>();
+            assemblyProduct = productAttribute?.Product;
+        }
+        catch
+        {
+            // Ignore errors when reading attributes
+        }
         
         // Also use metadata reader for additional analysis
         using var fileStream = File.OpenRead(assemblyPath);
@@ -48,7 +72,15 @@ public sealed class McpToolAnalyzer
             }
         }
 
-        return new McpToolsOutput { Tools = tools };
+        return new AnalysisResult 
+        { 
+            Tools = tools,
+            AssemblyName = assemblyName.Name,
+            AssemblyVersion = assemblyVersion,
+            AssemblyDescription = assemblyDescription,
+            AssemblyCompany = assemblyCompany,
+            AssemblyProduct = assemblyProduct
+        };
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2075", Justification = "Dynamic access to public methods is required for MCP tool discovery")]

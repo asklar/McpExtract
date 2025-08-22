@@ -1,6 +1,6 @@
 # McpExtract
 
-A command line tool that extracts Model Context Protocol (MCP) tool metadata from .NET assemblies and outputs it as JSON or Python function definitions.
+A command line tool that extracts Model Context Protocol (MCP) tool metadata from .NET assemblies and outputs it as JSON, Python function definitions, or DXT manifests.
 
 ## Why This Tool Matters
 
@@ -22,7 +22,7 @@ The Python output format is particularly valuable for ML workflows, providing re
 
 This tool scans .NET DLL files that use the [MCP SDK for C#](https://github.com/modelcontextprotocol/csharp-sdk/) and extracts information about methods annotated with `[McpServerTool(...)]` attributes. 
 
-It outputs structured JSON or Python, containing details about each tool including:
+It outputs structured JSON, Python, or DXT manifest formats, containing details about each tool including:
 
 - Tool name and description
 - Parameter information with types and descriptions
@@ -35,7 +35,7 @@ It outputs structured JSON or Python, containing details about each tool includi
 - **No LINQ**: Uses only loops and direct method calls for maximum compatibility
 - **System.Text.Json Source Generators**: Uses compile-time JSON serialization for performance
 - **Reflection-Based Analysis**: Analyzes target assemblies without requiring them as dependencies
-- **Multiple Output Formats**: Supports JSON and Python function definitions
+- **Multiple Output Formats**: Supports JSON, Python function definitions, and DXT manifests
 - **Command Line Interface**: Built with System.CommandLine for robust argument parsing
 - **Parameter Descriptions**: Extracts descriptions from `[Description]` attributes on methods and parameters
 
@@ -44,8 +44,9 @@ It outputs structured JSON or Python, containing details about each tool includi
 ### Typical Cross-Team Workflow
 
 1. **MCP Development Team** builds and compiles MCP servers with rich tool annotations
-2. **CI/CD Pipeline** runs Mcp2Json against the compiled assemblies to extract tool metadata
+2. **CI/CD Pipeline** runs McpExtract against the compiled assemblies to extract tool metadata
 3. **Training Data Pipeline** consumes the JSON/Python output to generate model training data
+4. **DXT Integration** uses the DXT manifest output to package MCP servers for distribution
 4. **ML Team** uses the extracted metadata to retrain tool-calling models with current tool definitions
 
 ### Example Integration
@@ -55,8 +56,10 @@ It outputs structured JSON or Python, containing details about each tool includi
 dotnet build MyMcpServer.csproj
 McpExtract bin/Release/net9.0/MyMcpServer.dll --output tools.json
 McpExtract bin/Release/net9.0/MyMcpServer.dll --output training_functions.py --format python
+McpExtract bin/Release/net9.0/MyMcpServer.dll --output manifest.json --format dxt
 
 # Training pipeline can now use tools.json for metadata and training_functions.py as reference
+# DXT systems can use manifest.json for MCP server distribution and integration
 ```
 
 ## Usage
@@ -73,13 +76,19 @@ McpExtract <assembly-path> --format python
 
 # Output Python to file
 McpExtract <assembly-path> --output tools.py --format python
+
+# Output DXT manifest
+McpExtract <assembly-path> --format dxt
+
+# Output DXT manifest to file
+McpExtract <assembly-path> --output manifest.json --format dxt
 ```
 
 ### Command Line Options
 
 - `<assembly-path>` - Path to the .NET assembly (.dll) to analyze (required)
 - `-o, --output <file>` - Path for the output file. If not specified, outputs to console
-- `-f, --format <json|python>` - Output format: `json` (default) or `python`
+- `-f, --format <json|python|dxt>` - Output format: `json` (default), `python`, or `dxt`
 - `--help` - Show help and usage information
 
 ### Examples
@@ -156,6 +165,44 @@ def echo(message: str) -> Optional[str]:
     # Implementation would go here
     pass
 ```
+
+### DXT Format
+
+When using `--format=dxt`, the tool generates a DXT manifest that follows the [DXT specification](https://github.com/anthropics/dxt/blob/main/MANIFEST.md):
+
+```json
+{
+  "dxt_version": "0.1",
+  "name": "MyMcpServer",
+  "version": "1.0.0.0",
+  "description": "MCP server extracted from MyMcpServer.dll",
+  "author": {
+    "name": "CompanyName",
+    "email": null,
+    "url": null
+  },
+  "server": {
+    "type": "binary",
+    "entry_point": "MyMcpServer.dll",
+    "mcp_config": {
+      "command": "dotnet",
+      "args": ["${__dirname}/MyMcpServer.dll"]
+    }
+  },
+  "tools": [
+    {
+      "name": "echo",
+      "description": "Echo the input message"
+    }
+  ]
+}
+```
+
+The DXT manifest includes:
+- Assembly metadata (name, version, description, company)
+- Server configuration for running the MCP server
+- Tools array with names and descriptions extracted from MCP attributes
+- Standard DXT format for integration with DXT-compatible systems
 
 ## Supported MCP Attributes
 
