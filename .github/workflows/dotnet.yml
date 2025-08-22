@@ -26,5 +26,7 @@ jobs:
       run: dotnet build --no-restore
     - name: Test
       run: dotnet test --no-build --verbosity normal
+    - name: Build TestMcp
+      run: dotnet build TestMcp/TestMcp.csproj
     - name: Print TestMcp DXT Output
       run: dotnet run --project McpExtract -- TestMcp/bin/Debug/net9.0/TestMcp.dll --format dxt
