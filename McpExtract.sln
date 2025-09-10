@@ -2,7 +2,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.5.2.0
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "McpExtract", "McpExtract.csproj", "{2855063D-7553-B24A-68A8-B6A4DF1CB640}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "McpExtract", "src\McpExtract.csproj", "{2855063D-7553-B24A-68A8-B6A4DF1CB640}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
