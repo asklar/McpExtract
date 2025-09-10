@@ -19,14 +19,14 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: 9.0.x
+        dotnet-version: 8.0.x
     - name: Restore dependencies
-      run: dotnet restore
+      run: dotnet restore src/McpExtract.csproj
     - name: Build
-      run: dotnet build --no-restore
+      run: dotnet build src/McpExtract.csproj --no-restore
     - name: Test
       run: dotnet test --no-build --verbosity normal
     - name: Build TestMcp
       run: dotnet build TestMcp/TestMcp.csproj
     - name: Print TestMcp DXT Output
-      run: dotnet run --project McpExtract.csproj -- TestMcp/bin/Debug/net9.0/TestMcp.dll --format dxt
+      run: dotnet run --project src/McpExtract.csproj -- TestMcp/bin/Debug/net8.0/TestMcp.dll --format dxt
