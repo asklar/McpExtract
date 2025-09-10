@@ -2,6 +2,49 @@
 
 A command line tool that extracts Model Context Protocol (MCP) tool metadata from .NET assemblies and outputs it as JSON, Python function definitions, or DXT manifests.
 
+## Installation
+
+### Install as a .NET Global Tool
+
+McpExtract is available as a .NET global tool and can be installed from NuGet:
+
+```bash
+dotnet tool install -g McpExtract.Tool
+```
+
+Once installed, you can run the tool from anywhere using:
+
+```bash
+mcp-extract --help
+```
+
+### Update to Latest Version
+
+To update to the latest version:
+
+```bash
+dotnet tool update -g McpExtract.Tool
+```
+
+### Uninstall
+
+To uninstall the tool:
+
+```bash
+dotnet tool uninstall -g McpExtract.Tool
+```
+
+### Local Development Installation
+
+For local development, you can install from source:
+
+```bash
+git clone https://github.com/asklar/McpExtract.git
+cd McpExtract
+dotnet pack
+dotnet tool install -g McpExtract.Tool --add-source ./bin/Release
+```
+
 ## Why This Tool Matters
 
 This tool bridges a critical gap between MCP server development and AI model training workflows:
@@ -54,9 +97,9 @@ It outputs structured JSON, Python, or DXT manifest formats, containing details 
 ```bash
 # In your CI/CD pipeline
 dotnet build MyMcpServer.csproj
-McpExtract bin/Release/net9.0/MyMcpServer.dll --output tools.json
-McpExtract bin/Release/net9.0/MyMcpServer.dll --output training_functions.py --format python
-McpExtract bin/Release/net9.0/MyMcpServer.dll --output manifest.json --format dxt
+mcp-extract bin/Release/net8.0/MyMcpServer.dll --output tools.json
+mcp-extract bin/Release/net8.0/MyMcpServer.dll --output training_functions.py --format python
+mcp-extract bin/Release/net8.0/MyMcpServer.dll --output manifest.json --format dxt
 
 # Training pipeline can now use tools.json for metadata and training_functions.py as reference
 # DXT systems can use manifest.json for MCP server distribution and integration
@@ -64,24 +107,48 @@ McpExtract bin/Release/net9.0/MyMcpServer.dll --output manifest.json --format dx
 
 ## Usage
 
+### Quick Start
+
+After installing the global tool:
+
 ```bash
-# Basic usage - output JSON to console
-McpExtract <assembly-path>
+# Show help and version information
+mcp-extract --help
+mcp-extract --version
+
+# Basic usage - analyze a .NET assembly and output JSON to console
+mcp-extract MyMcpServer.dll
 
 # Output JSON to file
-McpExtract <assembly-path> --output <output-file>
+mcp-extract MyMcpServer.dll --output tools.json
+
+# Generate Python function definitions
+mcp-extract MyMcpServer.dll --format python
+
+# Generate DXT manifest
+mcp-extract MyMcpServer.dll --format dxt
+```
+
+### Detailed Usage
+
+```bash
+# Basic usage - output JSON to console
+mcp-extract <assembly-path>
+
+# Output JSON to file
+mcp-extract <assembly-path> --output <output-file>
 
 # Output Python function definitions
-McpExtract <assembly-path> --format python
+mcp-extract <assembly-path> --format python
 
 # Output Python to file
-McpExtract <assembly-path> --output tools.py --format python
+mcp-extract <assembly-path> --output tools.py --format python
 
 # Output DXT manifest
-McpExtract <assembly-path> --format dxt
+mcp-extract <assembly-path> --format dxt
 
 # Output DXT manifest to file
-McpExtract <assembly-path> --output manifest.json --format dxt
+mcp-extract <assembly-path> --output manifest.json --format dxt
 ```
 
 ### Command Line Options
@@ -95,16 +162,16 @@ McpExtract <assembly-path> --output manifest.json --format dxt
 
 ```bash
 # Analyze an MCP server assembly and output JSON to console
-McpExtract MyMcpServer.dll
+mcp-extract MyMcpServer.dll
 
 # Analyze and save JSON to file
-McpExtract MyMcpServer.dll --output tools.json
+mcp-extract MyMcpServer.dll --output tools.json
 
 # Generate Python function definitions
-McpExtract MyMcpServer.dll --format python
+mcp-extract MyMcpServer.dll --format python
 
 # Generate Python and save to file
-McpExtract MyMcpServer.dll --output tools.py --format python
+mcp-extract MyMcpServer.dll --output tools.py --format python
 ```
 
 ## Output Formats
@@ -219,22 +286,24 @@ The analyzer recognizes and properly handles:
 - Task and Task<T> return types
 - Custom classes and structures
 
-## Building
+## Requirements
+
+- .NET 8.0 or later runtime for running the tool
+- Target assembly must be built with .NET Framework 4.6.1+ or .NET Core/5+
+
+## Building from Source
 
 ```bash
+git clone https://github.com/asklar/McpExtract.git
+cd McpExtract
 dotnet build
 ```
 
-For AOT publication:
+To create a release package:
 
 ```bash
-dotnet publish -c Release
+dotnet pack
 ```
-
-## Requirements
-
-- .NET 9.0 or later
-- Target assembly must be built with .NET Framework 4.6.1+ or .NET Core/5+
 
 ## Notes
 
