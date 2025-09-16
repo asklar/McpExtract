@@ -21,7 +21,7 @@
     <PackageId>McpExtract.Tool</PackageId>
     <Version>1.0.1</Version>
     <Authors>asklar</Authors>
-    <Description>A command line tool that extracts Model Context Protocol (MCP) tool metadata from .NET assemblies and outputs it as JSON, Python function definitions, or DXT manifests.</Description>
+    <Description>A command line tool that extracts Model Context Protocol (MCP) tool metadata from .NET assemblies and outputs it as JSON, Python function definitions, or MCPB (aka DXT) manifests.</Description>
     <PackageProjectUrl>https://github.com/asklar/McpExtract</PackageProjectUrl>
     <RepositoryUrl>https://github.com/asklar/McpExtract</RepositoryUrl>
     <RepositoryType>git</RepositoryType>

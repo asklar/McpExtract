@@ -28,5 +28,5 @@ jobs:
       run: dotnet test --no-build --verbosity normal
     - name: Build TestMcp
       run: dotnet build TestMcp/TestMcp.csproj
-    - name: Print TestMcp DXT Output
-      run: dotnet run --project src/McpExtract.csproj -- TestMcp/bin/Debug/net8.0/TestMcp.dll --format dxt
+    - name: Print TestMcp MCPB Output
+      run: dotnet run --project src/McpExtract.csproj -- TestMcp/bin/Debug/net8.0/TestMcp.dll --format mcpb
