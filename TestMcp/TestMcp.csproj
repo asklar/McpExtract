@@ -4,6 +4,9 @@
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <!-- Simulate an assembly that would target newer frameworks -->
+    <AssemblyTitle>TestMcp - Multi-TFM Simulation</AssemblyTitle>
+    <AssemblyDescription>A test assembly that simulates targeting different .NET versions</AssemblyDescription>
   </PropertyGroup>
 
 </Project>
