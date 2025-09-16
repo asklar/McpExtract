@@ -425,35 +425,49 @@ public sealed class McpToolAnalyzer
             BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static);
     }
 
+    /// <summary>
+    /// Analyzes a method to determine if it's an MCP tool and extracts its metadata.
+    /// Uses flexible attribute matching to support different MCP SDK versions and patterns.
+    /// </summary>
     private McpTool? AnalyzeMethod(MethodInfo method)
     {
-        // Look for McpServerTool attribute using MetadataLoadContext-compatible approach
-        object? mcpAttribute = null;
+        // Look for MCP tool attributes using more flexible matching
         var attributesData = method.GetCustomAttributesData();
+        CustomAttributeData? mcpAttributeData = null;
         
+        // Try multiple patterns to find MCP tool attributes
         for (var i = 0; i < attributesData.Count; i++)
         {
             var attrData = attributesData[i];
-            if (attrData.AttributeType.Name == McpServerToolAttributeName)
+            var attrTypeName = attrData.AttributeType.Name;
+            var attrFullName = attrData.AttributeType.FullName;
+            
+            // Match various MCP tool attribute patterns
+            if (attrTypeName == McpServerToolAttributeName ||
+                attrTypeName.Contains("McpTool") ||
+                attrTypeName.Contains("McpServerTool") ||
+                attrFullName?.Contains("McpTool") == true ||
+                attrFullName?.Contains("McpServerTool") == true)
             {
-                mcpAttribute = CreateAttributeProxy(attrData);
+                mcpAttributeData = attrData;
                 break;
             }
         }
 
-        if (mcpAttribute == null)
+        if (mcpAttributeData == null)
         {
             return null;
         }
 
-        // Extract tool name and description from attribute
-        var toolName = GetAttributePropertyFromData(attributesData, McpServerToolAttributeName, "Name") ?? method.Name;
-        var description = GetAttributePropertyFromData(attributesData, McpServerToolAttributeName, "Description") ?? string.Empty;
+        // Extract tool name and description using the found attribute
+        var actualAttributeName = mcpAttributeData.AttributeType.Name;
+        var toolName = GetAttributePropertyFromData(attributesData, actualAttributeName, "Name") ?? method.Name;
+        var description = GetAttributePropertyFromData(attributesData, actualAttributeName, "Description") ?? string.Empty;
         
         // Try alternative property names if description is empty
         if (string.IsNullOrEmpty(description))
         {
-            description = GetAttributePropertyFromData(attributesData, McpServerToolAttributeName, "description") ?? string.Empty;
+            description = GetAttributePropertyFromData(attributesData, actualAttributeName, "description") ?? string.Empty;
         }
         
         // Look for separate Description attribute (common in MCP SDK)
@@ -492,12 +506,38 @@ public sealed class McpToolAnalyzer
         };
     }
 
+    /// <summary>
+    /// Analyzes a parameter to extract MCP metadata.
+    /// Uses flexible attribute matching to support different MCP SDK versions and patterns.
+    /// </summary>
     private McpParameter AnalyzeParameter(ParameterInfo parameter)
     {
-        // Look for McpToolParameter attribute for description using MetadataLoadContext-compatible approach
+        // Look for MCP parameter attributes using more flexible matching
         var attributesData = parameter.GetCustomAttributesData();
+        string? foundAttributeName = null;
         
-        var description = GetAttributePropertyFromData(attributesData, McpToolParameterAttributeName, "Description") ?? string.Empty;
+        // Find any MCP parameter attribute
+        foreach (var attrData in attributesData)
+        {
+            var attrTypeName = attrData.AttributeType.Name;
+            var attrFullName = attrData.AttributeType.FullName;
+            
+            if (attrTypeName == McpToolParameterAttributeName ||
+                attrTypeName.Contains("McpParameter") ||
+                attrTypeName.Contains("McpToolParameter") ||
+                attrFullName?.Contains("McpParameter") == true ||
+                attrFullName?.Contains("McpToolParameter") == true)
+            {
+                foundAttributeName = attrTypeName;
+                break;
+            }
+        }
+        
+        var description = string.Empty;
+        if (foundAttributeName != null)
+        {
+            description = GetAttributePropertyFromData(attributesData, foundAttributeName, "Description") ?? string.Empty;
+        }
         
         // Look for separate Description attribute if still empty
         if (string.IsNullOrEmpty(description))
@@ -668,7 +708,7 @@ public sealed class McpToolAnalyzer
             if (attrData.AttributeType.Name == attributeName || 
                 attrData.AttributeType.FullName?.EndsWith("." + attributeName) == true)
             {
-                // Check named arguments (properties)
+                // Check named arguments (properties) first - these are most reliable
                 foreach (var namedArg in attrData.NamedArguments)
                 {
                     if (string.Equals(namedArg.MemberName, propertyName, StringComparison.OrdinalIgnoreCase))
@@ -677,14 +717,49 @@ public sealed class McpToolAnalyzer
                     }
                 }
                 
-                // Check constructor arguments (if property corresponds to constructor parameter)
-                if (attrData.ConstructorArguments.Count > 0 && string.Equals(propertyName, "Name", StringComparison.OrdinalIgnoreCase))
+                // If not found in named arguments, try to infer from constructor arguments
+                // Note: This is less reliable as the order depends on the constructor signature
+                if (attrData.ConstructorArguments.Count > 0)
                 {
-                    return attrData.ConstructorArguments[0].Value?.ToString();
-                }
-                if (attrData.ConstructorArguments.Count > 1 && string.Equals(propertyName, "Description", StringComparison.OrdinalIgnoreCase))
-                {
-                    return attrData.ConstructorArguments[1].Value?.ToString();
+                    // Try to get constructor parameter names if available
+                    try
+                    {
+                        var constructor = attrData.Constructor;
+                        if (constructor is MethodBase methodBase)
+                        {
+                            var parameters = methodBase.GetParameters();
+                            for (int i = 0; i < Math.Min(parameters.Length, attrData.ConstructorArguments.Count); i++)
+                            {
+                                if (string.Equals(parameters[i].Name, propertyName, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    return attrData.ConstructorArguments[i].Value?.ToString();
+                                }
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // Fall back to position-based approach if parameter inspection fails
+                    }
+                    
+                    // Fallback: Use common position conventions for MCP attributes
+                    if (string.Equals(propertyName, "Name", StringComparison.OrdinalIgnoreCase) && attrData.ConstructorArguments.Count > 0)
+                    {
+                        return attrData.ConstructorArguments[0].Value?.ToString();
+                    }
+                    if (string.Equals(propertyName, "Description", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Try second argument first (common pattern: name, description)
+                        if (attrData.ConstructorArguments.Count > 1)
+                        {
+                            return attrData.ConstructorArguments[1].Value?.ToString();
+                        }
+                        // If only one argument and looking for description, it might be the only argument
+                        if (attrData.ConstructorArguments.Count == 1)
+                        {
+                            return attrData.ConstructorArguments[0].Value?.ToString();
+                        }
+                    }
                 }
             }
         }
