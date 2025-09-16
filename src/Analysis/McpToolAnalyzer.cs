@@ -233,19 +233,45 @@ public sealed class McpToolAnalyzer
             if (!Directory.Exists(refPackPath))
                 continue;
 
-            // Look for the specific version directory
-            var versionDirs = Directory.GetDirectories(refPackPath)
-                .Where(d => Path.GetFileName(d).StartsWith(version))
-                .OrderByDescending(d => Path.GetFileName(d))
-                .ToArray();
-
-            if (versionDirs.Length == 0)
+            // Look for the specific version directories (manual filter + sort descending)
+            var allDirs = Directory.GetDirectories(refPackPath);
+            var matched = new List<string>();
+            for (int i = 0; i < allDirs.Length; i++)
+            {
+                var dirName = Path.GetFileName(allDirs[i]);
+                if (dirName.StartsWith(version, StringComparison.Ordinal))
+                {
+                    matched.Add(allDirs[i]);
+                }
+            }
+            if (matched.Count == 0)
                 continue;
-
-            var refDir = Path.Combine(versionDirs[0], "ref", $"net{version.Split('.')[0]}.0");
+            // Sort descending by directory name (simple selection sort)
+            for (int i = 0; i < matched.Count - 1; i++)
+            {
+                int maxIndex = i;
+                for (int j = i + 1; j < matched.Count; j++)
+                {
+                    var nameJ = Path.GetFileName(matched[j]);
+                    var nameMax = Path.GetFileName(matched[maxIndex]);
+                    if (string.CompareOrdinal(nameJ, nameMax) > 0)
+                    {
+                        maxIndex = j;
+                    }
+                }
+                if (maxIndex != i)
+                {
+                    var tmp = matched[i];
+                    matched[i] = matched[maxIndex];
+                    matched[maxIndex] = tmp;
+                }
+            }
+            var chosen = matched[0];
+            var refDir = Path.Combine(chosen, "ref", $"net{version.Split('.')[0]}.0");
             if (Directory.Exists(refDir))
             {
-                referenceAssemblies.AddRange(Directory.GetFiles(refDir, "*.dll"));
+                var files = Directory.GetFiles(refDir, "*.dll");
+                referenceAssemblies.AddRange(files);
                 return true;
             }
         }
@@ -283,9 +309,17 @@ public sealed class McpToolAnalyzer
         if (string.IsNullOrEmpty(directory) || !Directory.Exists(directory))
             return Array.Empty<string>();
 
-        return Directory.GetFiles(directory, "*.dll")
-            .Where(dll => !string.Equals(dll, assemblyPath, StringComparison.OrdinalIgnoreCase))
-            .ToArray();
+        var all = Directory.GetFiles(directory, "*.dll");
+        var list = new List<string>();
+        for (int i = 0; i < all.Length; i++)
+        {
+            var dll = all[i];
+            if (!string.Equals(dll, assemblyPath, StringComparison.OrdinalIgnoreCase))
+            {
+                list.Add(dll);
+            }
+        }
+        return list.ToArray();
     }
 
     /// <summary>
@@ -325,27 +359,62 @@ public sealed class McpToolAnalyzer
 
         // Detect target framework and find reference assemblies
         var targetFramework = DetectTargetFramework(assemblyPath);
+        LogDebug("Detected target framework: {0}", targetFramework);
         var referenceAssemblies = FindReferenceAssemblies(targetFramework);
+        // Build reference assemblies list text without LINQ
+        {
+            var names = new List<string>();
+            for (int i = 0; i < referenceAssemblies.Length; i++)
+            {
+                names.Add(Path.GetFileName(referenceAssemblies[i]));
+            }
+            LogDebug("Reference assemblies ({0}): {1}", referenceAssemblies.Length, string.Join(", ", names.ToArray()));
+        }
         var siblingDependencies = GetSiblingDependencies(assemblyPath);
+        {
+            var depNames = new List<string>();
+            for (int i = 0; i < siblingDependencies.Length; i++)
+            {
+                depNames.Add(Path.GetFileName(siblingDependencies[i]));
+            }
+            LogDebug("Sibling dependencies ({0}): {1}", siblingDependencies.Length, string.Join(", ", depNames.ToArray()));
+        }
 
         // Combine reference assemblies with sibling dependencies for resolution
-        var allAssemblies = referenceAssemblies.Concat(siblingDependencies).Concat(new[] { assemblyPath }).ToArray();
+        // Manually concatenate arrays (referenceAssemblies + siblingDependencies + assemblyPath)
+        var allAssemblies = new string[referenceAssemblies.Length + siblingDependencies.Length + 1];
+        int offset = 0;
+        for (int i = 0; i < referenceAssemblies.Length; i++)
+        {
+            allAssemblies[offset++] = referenceAssemblies[i];
+        }
+        for (int i = 0; i < siblingDependencies.Length; i++)
+        {
+            allAssemblies[offset++] = siblingDependencies[i];
+        }
+        allAssemblies[offset] = assemblyPath;
+        LogDebug("Total assemblies provided to resolver: {0}", allAssemblies.Length);
         
         // Create resolver and load context
         var resolver = new PathAssemblyResolver(allAssemblies);
         
         // Find the core assembly (System.Runtime, System.Private.CoreLib, or mscorlib)
-        var coreAssembly = referenceAssemblies.FirstOrDefault(a => 
+        string? coreAssembly = null;
+        for (int i = 0; i < referenceAssemblies.Length; i++)
         {
-            var fileName = Path.GetFileNameWithoutExtension(a);
-            return fileName == "System.Runtime" || 
-                   fileName == "System.Private.CoreLib" || 
-                   fileName == "mscorlib";
-        });
+            var fileName = Path.GetFileNameWithoutExtension(referenceAssemblies[i]);
+            if (fileName == "System.Runtime" || fileName == "System.Private.CoreLib" || fileName == "mscorlib")
+            {
+                coreAssembly = referenceAssemblies[i];
+                break;
+            }
+        }
+        LogDebug("Core assembly selected for MetadataLoadContext: {0}", coreAssembly ?? "(none)");
             
         using var loadContext = coreAssembly != null 
             ? new MetadataLoadContext(resolver, Path.GetFileNameWithoutExtension(coreAssembly))
             : new MetadataLoadContext(resolver);
+        LogDebug("MetadataLoadContext created (CoreName: {0})", coreAssembly != null ? Path.GetFileNameWithoutExtension(coreAssembly) : "default");
         
         try
         {
@@ -395,12 +464,12 @@ public sealed class McpToolAnalyzer
                 foreach (var method in methods)
                 {
                     var mcpTool = AnalyzeMethod(method);
-                    if (mcpTool != null)
-                    {
-                        tools.Add(mcpTool);
-                    }
-                }
-            }
+                     if (mcpTool != null)
+                     {
+                         tools.Add(mcpTool);
+                     }
+                 }
+             }
 
             return new AnalysisResult 
             { 
@@ -434,46 +503,56 @@ public sealed class McpToolAnalyzer
         // Look for MCP tool attributes using more flexible matching
         var attributesData = method.GetCustomAttributesData();
         CustomAttributeData? mcpAttributeData = null;
-        
-        // Try multiple patterns to find MCP tool attributes
+
         for (var i = 0; i < attributesData.Count; i++)
         {
             var attrData = attributesData[i];
             var attrTypeName = attrData.AttributeType.Name;
             var attrFullName = attrData.AttributeType.FullName;
-            
-            // Match various MCP tool attribute patterns
+
             if (attrTypeName == McpServerToolAttributeName ||
                 attrTypeName.Contains("McpTool") ||
                 attrTypeName.Contains("McpServerTool") ||
-                attrFullName?.Contains("McpTool") == true ||
-                attrFullName?.Contains("McpServerTool") == true)
+                (attrFullName?.Contains("McpTool") ?? false) ||
+                (attrFullName?.Contains("McpServerTool") ?? false))
             {
+                DebugAttributeData(attrData, $"method {method.DeclaringType?.FullName}.{method.Name}");
                 mcpAttributeData = attrData;
                 break;
             }
         }
 
         if (mcpAttributeData == null)
-        {
             return null;
-        }
 
-        // Extract tool name and description using the found attribute
         var actualAttributeName = mcpAttributeData.AttributeType.Name;
-        var toolName = GetAttributePropertyFromData(attributesData, actualAttributeName, "Name") ?? method.Name;
-        var description = GetAttributePropertyFromData(attributesData, actualAttributeName, "Description") ?? string.Empty;
+        var toolName = GetAttributePropertyFromData(attributesData, actualAttributeName, "Name")
+            ?? GetAttributePropertyFromData(attributesData, McpServerToolAttributeName, "Name")
+            ?? method.Name;
         
-        // Try alternative property names if description is empty
+        // Prefer an explicit Description attribute if present. Some MCP SDKs use a separate
+        // attribute for description instead of a Description property on the tool attribute.
+        var description = GetAttributePropertyFromData(attributesData, "DescriptionAttribute", "Description")
+            ?? GetAttributePropertyFromData(attributesData, "McpServerToolDescriptionAttribute", "Description")
+            ?? GetAttributePropertyFromData(attributesData, "McpToolDescriptionAttribute", "Description")
+            ?? GetAttributePropertyFromData(attributesData, "ToolDescriptionAttribute", "Description")
+            // Fall back to Description property/ctor arg on the McpServerToolAttribute
+            ?? GetAttributePropertyFromData(attributesData, McpServerToolAttributeName, "Description")
+            ?? GetAttributePropertyFromData(attributesData, McpServerToolAttributeName, "description")
+            ?? string.Empty;
+
         if (string.IsNullOrEmpty(description))
         {
-            description = GetAttributePropertyFromData(attributesData, actualAttributeName, "description") ?? string.Empty;
-        }
-        
-        // Look for separate Description attribute (common in MCP SDK)
-        if (string.IsNullOrEmpty(description))
-        {
-            description = GetAttributePropertyFromData(attributesData, "DescriptionAttribute", "Description") ?? string.Empty;
+            LogDebug("No description found for {0}.{1} (looked in separate Description attributes and McpServerTool attribute)", method.DeclaringType?.FullName, method.Name);
+            LogDebug("Dumping available attribute data for method {0}.{1} to assist diagnosis", method.DeclaringType?.FullName, method.Name);
+            foreach (var ad in attributesData)
+            {
+                DebugAttributeData(ad, $"method {method.DeclaringType?.FullName}.{method.Name} - final dump");
+            }
+            // Last-chance lookup on actual attribute name variants
+            description = GetAttributePropertyFromData(attributesData, actualAttributeName, "Description")
+                ?? GetAttributePropertyFromData(attributesData, actualAttributeName, "description")
+                ?? description;
         }
 
         // Analyze parameters
@@ -713,6 +792,8 @@ public sealed class McpToolAnalyzer
                 {
                     if (string.Equals(namedArg.MemberName, propertyName, StringComparison.OrdinalIgnoreCase))
                     {
+                        var namedValue = namedArg.TypedValue.Value?.ToString();
+                        LogDebug("Found {0} on attribute {1} via named argument '{2}': {3}", propertyName, attributeName, namedArg.MemberName, namedValue ?? "<null>");
                         return namedArg.TypedValue.Value?.ToString();
                     }
                 }
@@ -739,28 +820,43 @@ public sealed class McpToolAnalyzer
                     }
                     catch
                     {
-                        // Fall back to position-based approach if parameter inspection fails
+                        // Ignore reflection issues here
                     }
-                    
-                    // Fallback: Use common position conventions for MCP attributes
+
+                    // Fallback conventions
                     if (string.Equals(propertyName, "Name", StringComparison.OrdinalIgnoreCase) && attrData.ConstructorArguments.Count > 0)
                     {
                         return attrData.ConstructorArguments[0].Value?.ToString();
                     }
                     if (string.Equals(propertyName, "Description", StringComparison.OrdinalIgnoreCase))
                     {
-                        // Try second argument first (common pattern: name, description)
                         if (attrData.ConstructorArguments.Count > 1)
                         {
                             return attrData.ConstructorArguments[1].Value?.ToString();
                         }
-                        // If only one argument and looking for description, it might be the only argument
                         if (attrData.ConstructorArguments.Count == 1)
                         {
                             return attrData.ConstructorArguments[0].Value?.ToString();
                         }
                     }
                 }
+                // Nothing found — log constructor-argument summary to help diagnosis
+                // Build sample values manually (max 5)
+                string sample = "";
+                int count = 0;
+                foreach (var ca in attrData.ConstructorArguments)
+                {
+                    if (count > 0)
+                        sample += ", ";
+                    sample += ca.Value != null ? ca.Value.ToString() : "<null>";
+                    count++;
+                    if (count >= 5) break;
+                }
+                LogDebug("Attribute {0} found but property {1} not present. ConstructorArgCount={2}. Sample values: {3}",
+                    attributeName,
+                    propertyName,
+                    attrData.ConstructorArguments.Count,
+                    sample);
             }
         }
         
@@ -774,5 +870,44 @@ public sealed class McpToolAnalyzer
     {
         // For our purposes, we don't need the actual proxy object since we're accessing data directly
         return new object();
+    }
+
+    private static bool DebugEnabled =>
+        string.Equals(Environment.GetEnvironmentVariable("MCP_EXTRACT_DEBUG"), "1", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(Environment.GetEnvironmentVariable("MCP_EXTRACT_DEBUG"), "true", StringComparison.OrdinalIgnoreCase);
+
+    private static void LogDebug(string format, params object[] args)
+    {
+        if (!DebugEnabled) return;
+        try
+        {
+            Console.WriteLine("[McpToolAnalyzer] " + string.Format(format, args));
+        }
+        catch { /* ignore logging errors */ }
+    }
+
+    private void DebugAttributeData(CustomAttributeData data, string context)
+    {
+        if (!DebugEnabled) return;
+        try
+        {
+            Console.WriteLine($"[McpToolAnalyzer] Attribute data for {context}: Type={data.AttributeType?.FullName}");
+            Console.WriteLine($"  ConstructorArguments ({data.ConstructorArguments.Count}):");
+            for (var i = 0; i < data.ConstructorArguments.Count; i++)
+            {
+                var a = data.ConstructorArguments[i];
+                Console.WriteLine($"    [{i}] ArgType={(a.ArgumentType?.FullName ?? "unknown")} Value={(a.Value == null ? "<null>" : a.Value.ToString())} (rawType={(a.Value == null ? "null" : a.Value.GetType().FullName)})");
+            }
+            Console.WriteLine($"  NamedArguments ({data.NamedArguments.Count}):");
+            for (var i = 0; i < data.NamedArguments.Count; i++)
+            {
+                var n = data.NamedArguments[i];
+                Console.WriteLine($"    [{i}] MemberName={n.MemberName} Type={(n.TypedValue.ArgumentType?.FullName ?? "unknown")} Value={(n.TypedValue.Value == null ? "<null>" : n.TypedValue.Value.ToString())} (rawType={(n.TypedValue.Value == null ? "null" : n.TypedValue.Value.GetType().FullName)})");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[McpToolAnalyzer] Failed to dump attribute data for {context}: {ex}");
+        }
     }
 }

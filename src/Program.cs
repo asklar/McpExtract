@@ -24,10 +24,10 @@ public static class Program
 
         var formatOption = new Option<string>(
             name: "--format",
-            description: "Output format: json (default), python, or dxt",
+            description: "Output format: json (default), python, or mcpb",
             getDefaultValue: () => "json");
         formatOption.AddAlias("-f");
-        formatOption.FromAmong("json", "python", "dxt");
+        formatOption.FromAmong("json", "python", "mcpb");
 
         var rootCommand = new RootCommand("Extracts Model Context Protocol (MCP) tool metadata from .NET assemblies")
         {
@@ -76,9 +76,9 @@ public static class Program
             {
                 output = GeneratePythonOutput(result, assemblyPath.Name);
             }
-            else if (format == "dxt")
+            else if (format == "mcpb")
             {
-                output = GenerateDxtOutput(result, assemblyPath.Name);
+                output = GenerateMcpbOutput(result, assemblyPath.Name);
             }
             else
             {
@@ -182,49 +182,54 @@ public static class Program
         return python.ToString();
     }
 
-    private static string GenerateDxtOutput(AnalysisResult result, string assemblyFileName)
+
+    private static string GenerateMcpbOutput(AnalysisResult result, string assemblyFileName)
     {
-        // Convert MCP tools to DXT tools format
-        var dxtTools = new List<DxtTool>();
-        foreach (var tool in result.Tools)
+        // Map existing analysis result tools (name + description only per spec)
+        var tools = new List<McpbTool>();
+        for (int i = 0; i < result.Tools.Count; i++)
         {
-            dxtTools.Add(new DxtTool
+            var t = result.Tools[i];
+            tools.Add(new McpbTool
             {
-                Name = tool.Name,
-                Description = tool.Description
+                Name = t.Name,
+                Description = string.IsNullOrEmpty(t.Description) ? null : t.Description
             });
         }
 
-        // Extract assembly name without extension for manifest name
         var manifestName = Path.GetFileNameWithoutExtension(assemblyFileName);
 
-        // Create DXT manifest
-        var manifest = new DxtManifest
+        // Build server command (binary execution with dotnet + assembly)
+        var server = new McpbServer
         {
-            DxtVersion = "0.1",
-            Name = manifestName,
-            Version = result.AssemblyVersion ?? "1.0.0",
-            Description = result.AssemblyDescription ?? $"MCP server extracted from {assemblyFileName}",
-            Author = new DxtAuthor
+            Type = "binary",
+            EntryPoint = assemblyFileName,
+            McpConfig = new McpbMcpConfig
             {
-                Name = result.AssemblyCompany ?? "Unknown",
-                Email = null,
-                Url = null
-            },
-            Server = new DxtServer
-            {
-                Type = "binary",
-                EntryPoint = assemblyFileName,
-                McpConfig = new DxtMcpConfig
-                {
-                    Command = "dotnet",
-                    Args = new List<string> { $"${{__dirname}}/{assemblyFileName}" }
-                }
-            },
-            Tools = dxtTools.Count > 0 ? dxtTools : null
+                Command = "dotnet",
+                Args = new List<string> { "${__dirname}/" + assemblyFileName },
+                Env = null,
+                PlatformOverrides = null
+            }
         };
 
-        return JsonSerializer.Serialize(manifest, JsonContext.Default.DxtManifest);
+        var manifest = new McpbManifest
+        {
+            ManifestVersion = "0.2",
+            Name = manifestName,
+            Version = result.AssemblyVersion ?? "1.0.0",
+            Description = result.AssemblyDescription ?? ($"MCP server extracted from {assemblyFileName}"),
+            Author = result.AssemblyCompany != null ? new McpbAuthor { Name = result.AssemblyCompany } : null,
+            Server = server,
+            Tools = tools.Count > 0 ? tools : null,
+            ToolsGenerated = false,
+            Prompts = null,
+            PromptsGenerated = false,
+            Compatibility = null,
+            UserConfig = null
+        };
+
+        return JsonSerializer.Serialize(manifest, JsonContext.Default.McpbManifest);
     }
 
     private static string SanitizePythonName(string name)
