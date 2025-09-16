@@ -74,26 +74,8 @@ public sealed class McpToolAnalyzer
         var tfm = ExtractTfmFromFrameworkName(targetFramework);
         var targetVersion = ExtractVersionFromTfm(tfm);
 
-        // Common locations for .NET reference assemblies
-        var possiblePaths = new[]
-        {
-            "/usr/lib/dotnet/packs",
-            "/usr/share/dotnet/packs",
-            "/usr/local/share/dotnet/packs",
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet", "packs"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "dotnet", "packs")
-        };
-
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            // Add Windows-specific paths
-            var windowsPaths = new[]
-            {
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet", "packs"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "dotnet", "packs")
-            };
-            possiblePaths = possiblePaths.Concat(windowsPaths).ToArray();
-        }
+        // Get platform-specific .NET reference assembly locations
+        var possiblePaths = GetDotNetReferenceAssemblyPaths();
 
         // Try to find the exact version first, then fallback to lower versions
         for (var version = targetVersion; version >= 6; version--)
@@ -142,6 +124,102 @@ public sealed class McpToolAnalyzer
         }
 
         return referenceAssemblies.ToArray();
+    }
+
+    /// <summary>
+    /// Gets platform-specific paths where .NET reference assemblies might be located.
+    /// </summary>
+    private string[] GetDotNetReferenceAssemblyPaths()
+    {
+        var paths = new List<string>();
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            // Windows-specific paths
+            var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+            var programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+            
+            if (!string.IsNullOrEmpty(programFiles))
+            {
+                paths.Add(Path.Combine(programFiles, "dotnet", "packs"));
+            }
+            
+            if (!string.IsNullOrEmpty(programFilesX86))
+            {
+                paths.Add(Path.Combine(programFilesX86, "dotnet", "packs"));
+            }
+            
+            // Additional Windows paths where .NET might be installed
+            paths.Add(@"C:\Program Files\dotnet\packs");
+            paths.Add(@"C:\Program Files (x86)\dotnet\packs");
+        }
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        {
+            // Linux-specific paths
+            paths.Add("/usr/lib/dotnet/packs");
+            paths.Add("/usr/share/dotnet/packs");
+            paths.Add("/usr/local/share/dotnet/packs");
+            paths.Add("/opt/dotnet/packs");
+        }
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        {
+            // macOS-specific paths
+            paths.Add("/usr/local/share/dotnet/packs");
+            paths.Add("/usr/share/dotnet/packs");
+            paths.Add("/opt/dotnet/packs");
+        }
+
+        // Try to detect from current .NET installation
+        var currentDotNetPath = GetCurrentDotNetInstallationPath();
+        if (!string.IsNullOrEmpty(currentDotNetPath))
+        {
+            var packsPath = Path.Combine(currentDotNetPath, "packs");
+            if (!paths.Contains(packsPath))
+            {
+                paths.Insert(0, packsPath); // Prioritize current installation
+            }
+        }
+
+        return paths.ToArray();
+    }
+
+    /// <summary>
+    /// Attempts to determine the current .NET installation path.
+    /// </summary>
+    private string? GetCurrentDotNetInstallationPath()
+    {
+        try
+        {
+            // Get the path from the current runtime location
+            var runtimeLocation = typeof(object).Assembly.Location;
+            if (!string.IsNullOrEmpty(runtimeLocation))
+            {
+                // Navigate up from runtime location to find dotnet root
+                // Typical structure: /dotnet/shared/Microsoft.NETCore.App/version/...
+                var dir = new DirectoryInfo(runtimeLocation);
+                while (dir != null && dir.Parent != null)
+                {
+                    if (string.Equals(dir.Name, "dotnet", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return dir.FullName;
+                    }
+                    dir = dir.Parent;
+                }
+            }
+
+            // Try using DOTNET_ROOT environment variable
+            var dotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
+            if (!string.IsNullOrEmpty(dotnetRoot) && Directory.Exists(dotnetRoot))
+            {
+                return dotnetRoot;
+            }
+        }
+        catch
+        {
+            // Ignore errors in path detection
+        }
+
+        return null;
     }
 
     private bool TryFindReferenceAssembliesForVersion(string[] basePaths, string version, List<string> referenceAssemblies)
