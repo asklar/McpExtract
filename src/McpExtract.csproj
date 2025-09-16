@@ -31,13 +31,14 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="System.Reflection.MetadataLoadContext" Version="9.0.9" />
     <PackageReference Include="System.Text.Json" Version="8.0.5" />
-    <PackageReference Include="System.Reflection.Metadata" Version="8.0.0" />
+    <PackageReference Include="System.Reflection.Metadata" Version="9.0.9" />
     <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="../README.md" Pack="true" PackagePath="\"/>
+    <None Include="../README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
 </Project>
