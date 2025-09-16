@@ -74,10 +74,11 @@ It outputs structured JSON, Python, or DXT manifest formats, containing details 
 
 ## Features
 
-- **AOT-Compatible**: Built with .NET 9 and native AOT support
+- **Cross-TFM Compatibility**: Uses `MetadataLoadContext` for isolated assembly analysis, enabling analysis of assemblies targeting any .NET version (net6.0, net8.0, net9.0, etc.) without version conflicts
+- **AOT-Compatible**: Built with .NET 8 and native AOT support
 - **No LINQ**: Uses only loops and direct method calls for maximum compatibility
 - **System.Text.Json Source Generators**: Uses compile-time JSON serialization for performance
-- **Reflection-Based Analysis**: Analyzes target assemblies without requiring them as dependencies
+- **Isolated Assembly Analysis**: Analyzes target assemblies without loading them into the current runtime context
 - **Multiple Output Formats**: Supports JSON, Python function definitions, and DXT manifests
 - **Command Line Interface**: Built with System.CommandLine for robust argument parsing
 - **Parameter Descriptions**: Extracts descriptions from `[Description]` attributes on methods and parameters
@@ -289,7 +290,8 @@ The analyzer recognizes and properly handles:
 ## Requirements
 
 - .NET 8.0 or later runtime for running the tool
-- Target assembly must be built with .NET Framework 4.6.1+ or .NET Core/5+
+- Target assemblies can be built with any .NET version (.NET Framework 4.6.1+, .NET Core/5/6/7/8/9+, etc.)
+- The tool uses `MetadataLoadContext` for isolated analysis, eliminating version conflicts between the tool and target assemblies
 
 ## Building from Source
 
@@ -307,6 +309,8 @@ dotnet pack
 
 ## Notes
 
-- The tool loads the target assembly using reflection, so it should be compatible with the current runtime
+- The tool uses `MetadataLoadContext` for isolated assembly analysis, enabling cross-version compatibility without loading assemblies into the current runtime
+- Reference assemblies are automatically discovered for the target framework, with fallback to current runtime assemblies if needed
 - CancellationToken parameters are automatically excluded from the analysis
 - Task and Task<T> return types are unwrapped to show the actual return type
+- Sibling dependencies (DLLs in the same directory) are included for proper type resolution
