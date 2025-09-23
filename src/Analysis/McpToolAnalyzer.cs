@@ -529,6 +529,27 @@ public sealed class McpToolAnalyzer
         var toolName = GetAttributePropertyFromData(attributesData, actualAttributeName, "Name")
             ?? GetAttributePropertyFromData(attributesData, McpServerToolAttributeName, "Name")
             ?? method.Name;
+
+        // Detect UseStructuredContent flag (named argument/property boolean). If not explicitly true, emit warning.
+        var structuredFlag = GetAttributePropertyFromData(attributesData, actualAttributeName, "UseStructuredContent")
+            ?? GetAttributePropertyFromData(attributesData, McpServerToolAttributeName, "UseStructuredContent");
+        var useStructured = false;
+        if (!string.IsNullOrEmpty(structuredFlag))
+        {
+            if (string.Equals(structuredFlag, "true", StringComparison.OrdinalIgnoreCase))
+            {
+                useStructured = true;
+            }
+            else if (string.Equals(structuredFlag, "False", StringComparison.OrdinalIgnoreCase) || string.Equals(structuredFlag, "0", StringComparison.OrdinalIgnoreCase))
+            {
+                useStructured = false;
+            }
+        }
+        if (!useStructured)
+        {
+            // Provide guidance about enabling structured content for better tool result semantics
+            Console.WriteLine($"Warning: Tool '{toolName}' ({method.DeclaringType?.FullName}.{method.Name}) does not have UseStructuredContent=true. Enable structured content for richer, schema-validated outputs.");
+        }
         
         // Prefer an explicit Description attribute if present. Some MCP SDKs use a separate
         // attribute for description instead of a Description property on the tool attribute.

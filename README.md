@@ -1,6 +1,6 @@
 # McpExtract
 
-A command line tool that extracts Model Context Protocol (MCP) tool metadata from .NET assemblies and outputs it as JSON, Python function definitions, or MCPB manifests.
+A command line tool that extracts Model Context Protocol (MCP) tool metadata from .NET assemblies and outputs it as JSON, Python function definitions, MCPB manifests, or an MCP tools/list schema document.
 
 ## Installation
 
@@ -79,7 +79,7 @@ It outputs structured JSON, Python, or MCPB manifest formats, containing details
 - **No LINQ**: Uses only loops and direct method calls for maximum compatibility
 - **System.Text.Json Source Generators**: Uses compile-time JSON serialization for performance
 - **Isolated Assembly Analysis**: Analyzes target assemblies without loading them into the current runtime context
-- **Multiple Output Formats**: Supports JSON, Python function definitions, and MCPB manifests
+- **Multiple Output Formats**: Supports JSON, Python function definitions, MCPB manifests, and tools-list schema
 - **Command Line Interface**: Built with System.CommandLine for robust argument parsing
 - **Parameter Descriptions**: Extracts descriptions from `[Description]` attributes on methods and parameters
 
@@ -128,6 +128,9 @@ mcp-extract MyMcpServer.dll --format python
 
 # Generate MCPB manifest
 mcp-extract MyMcpServer.dll --format mcpb
+
+# Generate MCP tools/list schema
+mcp-extract MyMcpServer.dll --format tools-list
 ```
 
 ### Detailed Usage
@@ -148,6 +151,9 @@ mcp-extract <assembly-path> --output tools.py --format python
 # Output MCPB manifest
 mcp-extract <assembly-path> --format mcpb
 
+# Output tools/list schema (MCP server tools/list endpoint format)
+mcp-extract <assembly-path> --format tools-list
+
 # Output MCPB manifest to file
 mcp-extract <assembly-path> --output manifest.json --format mcpb
 ```
@@ -156,7 +162,7 @@ mcp-extract <assembly-path> --output manifest.json --format mcpb
 
 - `<assembly-path>` - Path to the .NET assembly (.dll) to analyze (required)
 - `-o, --output <file>` - Path for the output file. If not specified, outputs to console
-- `-f, --format <json|python|mcpb>` - Output format: `json` (default), `python`, or `mcpb`
+- `-f, --format <json|python|mcpb|tools-list>` - Output format: `json` (default), `python`, `mcpb`, or `tools-list`
 - `--help` - Show help and usage information
 
 ### Examples
@@ -173,6 +179,12 @@ mcp-extract MyMcpServer.dll --format python
 
 # Generate Python and save to file
 mcp-extract MyMcpServer.dll --output tools.py --format python
+
+# Generate tools/list schema JSON
+mcp-extract MyMcpServer.dll --format tools-list
+
+# Generate tools/list schema and save to file
+mcp-extract MyMcpServer.dll --output tools-list.json --format tools-list
 ```
 
 ## Output Formats
@@ -243,6 +255,47 @@ The MCPB manifest includes:
 - Server configuration for running the MCP server
 - Tools array with names and descriptions extracted from MCP attributes
 - Standard MCPB format for integration with MCPB-compatible systems
+
+### Tools List Format
+
+When using `--format=tools-list`, the tool emits JSON suitable for serving from an MCP server's `tools/list` endpoint (see spec: https://modelcontextprotocol.io/specification/2025-06-18/server/tools).
+
+Structure:
+
+```json
+{
+  "tools": [
+    {
+      "name": "echo",
+      "title": "Echo",
+      "description": "Echo the input message",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "message": { "type": "string", "description": "The message to echo" }
+        },
+        "required": ["message"]
+      },
+      "outputSchema": { "type": "string" }
+    }
+  ]
+}
+```
+
+Notes:
+
+- `title` is derived from the tool name (CamelCase / snake_case converted to spaced Title Case) and omitted if identical to `name`
+- `description` is omitted when empty
+- No non-standard extensions are added (e.g. no `nullable` flag)
+- Array parameters become `{ "type": "array", "items": { ... } }`
+- A `void`/no-return tool produces an empty object schema for `outputSchema` with no required properties
+- Primitive type mapping aligns with JSON Schema primitives (e.g., `int` → `integer`, `bool` → `boolean`, `Guid` → `string` plus `format: uuid`)
+
+Example command:
+
+```bash
+mcp-extract MyMcpServer.dll --format tools-list --output tools-list.json
+```
 
 ## Supported MCP Attributes
 

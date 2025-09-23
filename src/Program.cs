@@ -24,10 +24,10 @@ public static class Program
 
         var formatOption = new Option<string>(
             name: "--format",
-            description: "Output format: json (default), python, or mcpb",
+            description: "Output format: json (default), python, mcpb, or tools-list",
             getDefaultValue: () => "json");
         formatOption.AddAlias("-f");
-        formatOption.FromAmong("json", "python", "mcpb");
+        formatOption.FromAmong("json", "python", "mcpb", "tools-list");
 
         var rootCommand = new RootCommand("Extracts Model Context Protocol (MCP) tool metadata from .NET assemblies")
         {
@@ -72,20 +72,13 @@ public static class Program
             var result = analyzer.AnalyzeAssembly(assemblyPath.FullName);
 
             string output;
-            if (format == "python")
+            output = format switch
             {
-                output = GeneratePythonOutput(result, assemblyPath.Name);
-            }
-            else if (format == "mcpb")
-            {
-                output = GenerateMcpbOutput(result, assemblyPath.Name);
-            }
-            else
-            {
-                // For JSON format, return the tools in the original format for backward compatibility
-                var mcpOutput = new McpToolsOutput { Tools = result.Tools };
-                output = JsonSerializer.Serialize(mcpOutput, JsonContext.Default.McpToolsOutput);
-            }
+                "python" => GeneratePythonOutput(result, assemblyPath.Name),
+                "mcpb" => GenerateMcpbOutput(result, assemblyPath.Name),
+                "tools-list" => GenerateToolsListOutput(result),
+                _ => JsonSerializer.Serialize(new McpToolsOutput { Tools = result.Tools }, JsonContext.Default.McpToolsOutput)
+            };
 
             if (outputPath != null)
             {
@@ -101,6 +94,129 @@ public static class Program
         catch (Exception ex)
         {
             Console.WriteLine($"Error: {ex.Message}");
+        }
+    }
+
+    private static string GenerateToolsListOutput(AnalysisResult result)
+    {
+        // Specification: https://modelcontextprotocol.io/specification/2025-06-18/server/tools
+        // Output shape: { "tools": [ { name, title, description, inputSchema, outputSchema } ] }
+
+        var toolsArray = new List<Dictionary<string, object?>>();
+
+        foreach (var tool in result.Tools)
+        {
+            var toolObj = new Dictionary<string, object?>();
+            toolObj["name"] = tool.Name;
+            // Title is optional; include only if different from name after formatting
+            var generatedTitle = BuildTitle(tool.Name);
+            if (!string.Equals(generatedTitle, tool.Name, StringComparison.Ordinal))
+            {
+                toolObj["title"] = generatedTitle;
+            }
+            if (!string.IsNullOrWhiteSpace(tool.Description))
+            {
+                toolObj["description"] = tool.Description;
+            }
+            toolObj["inputSchema"] = BuildInputSchema(tool);
+            var outputSchema = BuildOutputSchema(tool);
+            if (outputSchema != null)
+            {
+                toolObj["outputSchema"] = outputSchema;
+            }
+            toolsArray.Add(toolObj);
+        }
+
+        var root = new Dictionary<string, object?> { ["tools"] = toolsArray };
+
+        var options = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+        };
+        return JsonSerializer.Serialize(root, options);
+    }
+
+    private static string BuildTitle(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return "Tool";
+        // Insert spaces before capitals / underscores / dashes, then title case
+        var spaced = System.Text.RegularExpressions.Regex.Replace(name, "([a-z0-9])([A-Z])", "$1 $2");
+        spaced = spaced.Replace('_', ' ').Replace('-', ' ');
+        return System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(spaced.ToLowerInvariant());
+    }
+
+    private static Dictionary<string, object?> BuildInputSchema(McpTool tool)
+    {
+        var props = new Dictionary<string, object?>();
+        var required = new List<string>();
+        foreach (var p in tool.Parameters)
+        {
+            props[p.Name] = BuildSchemaFromType(p.Type, p.Description);
+            if (p.IsRequired) required.Add(p.Name);
+        }
+        return new Dictionary<string, object?>
+        {
+            ["type"] = "object",
+            ["properties"] = props,
+            ["required"] = required.Count > 0 ? required : null
+        };
+    }
+
+    private static object BuildOutputSchema(McpTool tool)
+    {
+        // If return type is void/None => empty object schema
+        if (string.Equals(tool.ReturnType.TypeName, "void", StringComparison.OrdinalIgnoreCase))
+        {
+            return new Dictionary<string, object?>
+            {
+                ["type"] = "object",
+                ["properties"] = new Dictionary<string, object?>(),
+                ["required"] = new List<string>()
+            };
+        }
+        return BuildSchemaFromType(tool.ReturnType, null);
+    }
+
+    private static Dictionary<string, object?> BuildSchemaFromType(McpType type, string? description)
+    {
+        if (type.IsArray && type.ElementType != null)
+        {
+            var itemSchema = BuildSchemaFromType(type.ElementType, null);
+            var arr = new Dictionary<string, object?>
+            {
+                ["type"] = "array",
+                ["items"] = itemSchema
+            };
+            if (!string.IsNullOrWhiteSpace(description)) arr["description"] = description;
+            return arr;
+        }
+
+        var (jsonType, format) = MapPrimitive(type.TypeName);
+        var schema = new Dictionary<string, object?> { ["type"] = jsonType };
+        if (format != null) schema["format"] = format;
+        if (!string.IsNullOrWhiteSpace(description)) schema["description"] = description;
+        // Do not emit non-standard extensions (e.g., nullable flag) for spec compliance
+        return schema;
+    }
+
+    private static (string Type, string? Format) MapPrimitive(string typeName)
+    {
+        switch (typeName.ToLowerInvariant())
+        {
+            case "string": return ("string", null);
+            case "guid": return ("string", "uuid");
+            case "datetime": return ("string", "date-time");
+            case "int":
+            case "long": return ("integer", null);
+            case "double":
+            case "float": return ("number", null);
+            case "bool":
+            case "boolean": return ("boolean", null);
+            case "object": return ("object", null);
+            case "void": return ("object", null);
+            default: return ("string", null);
         }
     }
 
