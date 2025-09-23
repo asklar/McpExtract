@@ -279,6 +279,49 @@ To create a release package:
 dotnet pack
 ```
 
+## MCPB Schema Code Generation (Experimental)
+
+This repository includes an optional `codegen` utility (Node-based) for generating C# POCO models from the upstream official MCPB Zod schema (`schemas.ts`). This is useful if you want strongly-typed access to evolving MCPB structures in .NET.
+
+The generator intentionally lives outside the main `McpExtract` .NET project so the core tool has no Node dependency.
+
+### Usage
+
+```pwsh
+cd codegen
+npm install
+npm run generate -- --out ../src --namespace McpExtract.McpbSchema
+```
+
+Options:
+
+- `--schema-url <url>`  Override the source of `schemas.ts` (default: main branch of official repo)
+- `--out <path>`        Output directory for generated C# file (default: `../src`)
+- `--namespace <ns>`    Root namespace for generated types (default: `McpExtract.McpbSchema`)
+- `--force`             Overwrite even if content hash matches prior generation
+
+Output file name: `McpbSchemaModels.cs`.
+
+### Current Status
+
+The current implementation downloads the schema and emits a placeholder with the source hash. A full Zod -> C# JSON Schema translation (supporting unions, discriminators, enums, nested objects, arrays, optionals) can be added incrementally. This separation allows iterative enhancement without impacting the main analyzer.
+
+Planned enhancements for full fidelity:
+
+1. Evaluate the downloaded Zod module in an isolated Node VM (dynamic import of transpiled JS) to collect exported schemas.
+2. Convert each Zod schema via `zod-to-json-schema` with definitions.
+3. Traverse JSON Schema, generating:
+  - `object` -> class with properties (nullable from `optional` / `null` union)
+  - `enum` (string/number) -> C# enum or string constants depending on shape
+  - Union / anyOf / oneOf -> interface + variant records or discriminated union pattern
+  - Arrays -> `List<T>`
+  - `Record<k,v>` -> `Dictionary<string, V>`
+4. Emit `[JsonPropertyName]` attributes preserving exact field names.
+5. Maintain stable deterministic ordering (alphabetical) for diff-friendly output.
+
+Contributions to complete those steps are welcome.
+
+
 ## Notes
 
 - The tool uses `MetadataLoadContext` for isolated assembly analysis, enabling cross-version compatibility without loading assemblies into the current runtime
