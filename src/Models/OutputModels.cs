@@ -41,7 +41,8 @@ public sealed class McpTool
     public required string Name { get; init; }
     public required string Description { get; init; }
     public required List<McpParameter> Parameters { get; init; }
-    public required McpType ReturnType { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public McpType? ReturnType { get; init; }
     public required string MethodName { get; init; }
     public required string ClassName { get; init; }
 }
