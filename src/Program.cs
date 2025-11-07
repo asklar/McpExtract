@@ -119,10 +119,14 @@ public static class Program
                 toolObj["description"] = tool.Description;
             }
             toolObj["inputSchema"] = BuildInputSchema(tool);
-            var outputSchema = BuildOutputSchema(tool);
-            if (outputSchema != null)
+            // Only include outputSchema if ReturnType is present (UseStructuredContent=true)
+            if (tool.ReturnType != null)
             {
-                toolObj["outputSchema"] = outputSchema;
+                var outputSchema = BuildOutputSchema(tool.ReturnType);
+                if (outputSchema != null)
+                {
+                    toolObj["outputSchema"] = outputSchema;
+                }
             }
             toolsArray.Add(toolObj);
         }
@@ -164,19 +168,45 @@ public static class Program
         };
     }
 
-    private static object BuildOutputSchema(McpTool tool)
+    private static object? BuildOutputSchema(McpType returnType)
     {
-        // If return type is void/None => empty object schema
-        if (string.Equals(tool.ReturnType.TypeName, "void", StringComparison.OrdinalIgnoreCase))
+        // Per MCP spec, outputSchema must always be type: "object" with properties
+        // If the return type is a primitive, we wrap it in a "result" property
+        
+        if (string.Equals(returnType.TypeName, "void", StringComparison.OrdinalIgnoreCase))
         {
+            // void return type => empty object schema
             return new Dictionary<string, object?>
             {
                 ["type"] = "object",
                 ["properties"] = new Dictionary<string, object?>(),
-                ["required"] = new List<string>()
             };
         }
-        return BuildSchemaFromType(tool.ReturnType, null);
+        
+        // Check if this is already an object type (not a primitive or array)
+        var (jsonType, _) = MapPrimitive(returnType.TypeName);
+        if (jsonType == "object" && !returnType.IsArray)
+        {
+            // Already an object type - return as-is
+            // TODO: In the future, we could inspect the object's properties to build a detailed schema
+            return new Dictionary<string, object?>
+            {
+                ["type"] = "object",
+                ["properties"] = new Dictionary<string, object?>(),
+            };
+        }
+        
+        // For primitives and arrays, wrap in a "result" property per MCP spec requirement
+        var resultSchema = BuildSchemaFromType(returnType, null);
+        return new Dictionary<string, object?>
+        {
+            ["type"] = "object",
+            ["properties"] = new Dictionary<string, object?>
+            {
+                ["result"] = resultSchema
+            },
+            ["required"] = new List<string> { "result" }
+        };
     }
 
     private static Dictionary<string, object?> BuildSchemaFromType(McpType type, string? description)
@@ -258,7 +288,7 @@ public static class Program
             python.Append(string.Join(", ", paramStrings));
             python.Append(")");
             // Add return type hint
-            var returnType = ConvertToPythonType(tool.ReturnType);
+            var returnType = tool.ReturnType != null ? ConvertToPythonType(tool.ReturnType) : "None";
             python.AppendLine($" -> {returnType}:");
             // Add docstring
             python.AppendLine("    \"\"");
@@ -288,7 +318,15 @@ public static class Program
                 python.AppendLine();
             }
             python.AppendLine($"    Returns:");
-            python.AppendLine($"        {returnType}: The result of the operation");
+            if (tool.ReturnType != null)
+            {
+                var returnTypeStr = ConvertToPythonType(tool.ReturnType);
+                python.AppendLine($"        {returnTypeStr}: The result of the operation");
+            }
+            else
+            {
+                python.AppendLine($"        None: Tool does not use structured content");
+            }
             python.AppendLine("    \"\"");
             python.AppendLine("    # Implementation would go here");
             python.AppendLine("    pass");

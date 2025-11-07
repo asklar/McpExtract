@@ -592,8 +592,12 @@ public sealed class McpToolAnalyzer
             parameters.Add(mcpParam);
         }
 
-        // Analyze return type
-        var returnType = AnalyzeType(method.ReturnType);
+        // Analyze return type only if UseStructuredContent=true
+        McpType? returnType = null;
+        if (useStructured)
+        {
+            returnType = AnalyzeType(method.ReturnType);
+        }
 
         return new McpTool
         {
